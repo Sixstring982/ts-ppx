@@ -1,11 +1,14 @@
 {
   "name": "ts-ppx",
-  "private": true,
+  "private": false,
   "scripts": {
     "build": "turbo build",
     "dev": "turbo dev",
     "lint": "turbo lint",
-    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+    "format": "prettier --write \"**/*.ts\"",
+    "core:test": "cd packages/core && pnpm test",
+    "example:start": "cd packages/example && pnpm start",
+    "example:codegen": "cd packages/example && pnpm codegen"
   },
   "devDependencies": {
     "prettier": "^3.2.5",

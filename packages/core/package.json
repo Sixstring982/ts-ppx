@@ -1,0 +1,28 @@
+{
+  "name": "@ts-ppx/core",
+  "version": "0.0.1",
+  "private": false,
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "test": "vitest",
+    "lint": "eslint src --max-warnings 0"
+  },
+  "devDependencies": {
+    "@ts-ppx/eslint-config": "workspace:*",
+    "@ts-ppx/typescript-config": "workspace:*",
+    "@turbo/gen": "^1.12.4",
+    "@types/eslint": "^8.56.5",
+    "@types/node": "^20.11.24",
+    "eslint": "^8.57.0",
+    "typescript": "^5.3.3",
+    "tsutils": "^3.21.0",
+    "vitest": "^2.0.5"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    }
+  }
+}
