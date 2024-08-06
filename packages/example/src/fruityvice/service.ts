@@ -10,6 +10,6 @@ export function fetchFruit(
   return fetch(r)
     .then((response) => response.json())
     .then((response) => {
-      return FruityviceResponse.SCHEMA.parseAsync(response);
+      return FruityviceResponse.schema().parseAsync(response);
     });
 }

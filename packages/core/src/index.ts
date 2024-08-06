@@ -119,7 +119,7 @@ export function runTsPpx(config: Config): void {
           for (const tag of tsPpxTag.ppxs) {
             const plugin = pluginsByName.get(tag);
             if (plugin === undefined) {
-              throw new Error(`Plugin not registered: "${tag}"!`);
+              throw new Error(`Code generator not registered: "${tag}"!`);
             }
 
             const targetFilename = plugin.transformPath(filename);

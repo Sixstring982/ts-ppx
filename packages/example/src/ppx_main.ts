@@ -1,6 +1,8 @@
 import { Filesystem, runTsPpx } from "@ts-ppx/core";
-import { ZodTsPpxPluginConfig } from "@ts-ppx/zod";
+import { FastCheckCodeGeneratorPlugin } from "@ts-ppx/fast-check";
 import { PrettierCodeFormatterPlugin } from "@ts-ppx/prettier";
+import { ZodTsPpxPluginConfig } from "@ts-ppx/zod";
+import path from "path";
 
 runTsPpx({
   filesystem: Filesystem.makeFs(),
@@ -9,6 +11,15 @@ runTsPpx({
     ZodTsPpxPluginConfig.make({
       transformPath: (path: string) => {
         return path.replace(".ppx.ts", ".ts");
+      },
+    }),
+    FastCheckCodeGeneratorPlugin.make({
+      transformPath: (filename) => {
+        const dir = path.dirname(filename);
+        let base = path.basename(filename);
+        base = base.replace(".ppx.ts", ".ts");
+
+        return path.join(dir, "testing", base);
       },
     }),
   ],

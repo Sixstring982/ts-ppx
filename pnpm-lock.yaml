@@ -84,6 +84,9 @@ importers:
       '@ts-ppx/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
+      '@ts-ppx/fast-check':
+        specifier: workspace:*
+        version: link:../fast-check
       '@ts-ppx/prettier':
         specifier: workspace:*
         version: link:../prettier
@@ -102,9 +105,42 @@ importers:
       eslint:
         specifier: ^8.57.0
         version: 8.57.0
+      fast-check:
+        specifier: ^3.20.0
+        version: 3.20.0
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@types/node@20.11.24)(typescript@5.4.5)
+      typescript:
+        specifier: ^5.3.3
+        version: 5.4.5
+      vitest:
+        specifier: ^2.0.5
+        version: 2.0.5(@types/node@20.11.24)
+
+  packages/fast-check:
+    devDependencies:
+      '@ts-ppx/core':
+        specifier: workspace:*
+        version: link:../core
+      '@ts-ppx/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@ts-ppx/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@types/eslint':
+        specifier: ^8.56.5
+        version: 8.56.5
+      '@types/node':
+        specifier: ^20.11.24
+        version: 20.11.24
+      eslint:
+        specifier: ^8.57.0
+        version: 8.57.0
+      tsutils:
+        specifier: ^3.21.0
+        version: 3.21.0(typescript@5.4.5)
       typescript:
         specifier: ^5.3.3
         version: 5.4.5
@@ -2820,6 +2856,13 @@ packages:
       tmp: 0.0.33
     dev: true
 
+  /fast-check@3.20.0:
+    resolution: {integrity: sha512-pZIjqLpOZgdSLecec4GKC3Zq5702MZ34upMKxojnNVSWA0K64V3pXOBT1Wdsrc3AphLtzRBbsi8bRWF4TUGmUg==}
+    engines: {node: '>=8.0.0'}
+    dependencies:
+      pure-rand: 6.1.0
+    dev: true
+
   /fast-deep-equal@3.1.3:
     resolution: {integrity: sha512-f3qQ9oQy9j2AhBe/H9VC91wLmKBCCU/gDOnKNAYG5hswO7BLKj09Hc5HYNz9cGI++xlpDCIgDaitVs03ATR84Q==}
     dev: true
@@ -4277,6 +4320,10 @@ packages:
   /punycode@2.3.0:
     resolution: {integrity: sha512-rRV+zQD8tVFys26lAGR9WUuS4iUAngJScM+ZRSKtvl5tKeZ2t5bvdNFdNHBW9FWR4guGHlgmsZ1G7BSm2wTbuA==}
     engines: {node: '>=6'}
+    dev: true
+
+  /pure-rand@6.1.0:
+    resolution: {integrity: sha512-bVWawvoZoBYpp6yIoQtQXHZjmz35RSVHnUOTefl8Vcjr8snTPY1wnpSPMWekcFwbxI6gtmT7rSYPFvz71ldiOA==}
     dev: true
 
   /queue-microtask@1.2.3:
