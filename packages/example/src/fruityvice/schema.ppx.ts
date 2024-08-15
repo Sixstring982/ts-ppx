@@ -1,3 +1,5 @@
+import { Nutritions } from "./nutritions";
+
 /** @ts-ppx(zod, fast-check) */
 export type FruityviceRequest = Readonly<{
   fruitName: string;
@@ -12,13 +14,4 @@ export type FruityviceResponse = Readonly<{
   genus: string;
   order: string;
   nutritions: Nutritions;
-}>;
-
-/** @ts-ppx(zod, fast-check) */
-export type Nutritions = Readonly<{
-  carbohydrates: number;
-  protein: number;
-  fat: number;
-  calories: number;
-  sugar: number;
 }>;

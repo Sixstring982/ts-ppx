@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { type FruityviceRequest as $FruityviceRequest } from "./schema.ppx";
 import { type FruityviceResponse as $FruityviceResponse } from "./schema.ppx";
-import { type Nutritions as $Nutritions } from "./schema.ppx";
 
 export type FruityviceRequest = $FruityviceRequest;
 export const FruityviceRequest = {
@@ -26,17 +25,4 @@ export const FruityviceResponse = {
         nutritions: Nutritions.schema(),
       })
       .transform((x): FruityviceResponse => x),
-} as const;
-export type Nutritions = $Nutritions;
-export const Nutritions = {
-  schema: () =>
-    z
-      .object({
-        carbohydrates: z.number(),
-        protein: z.number(),
-        fat: z.number(),
-        calories: z.number(),
-        sugar: z.number(),
-      })
-      .transform((x): Nutritions => x),
 } as const;
