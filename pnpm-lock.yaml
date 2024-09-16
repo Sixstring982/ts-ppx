@@ -47,6 +47,9 @@ importers:
 
   packages/core:
     devDependencies:
+      '@ts-ppx/common':
+        specifier: workspace:*
+        version: link:../common
       '@ts-ppx/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config

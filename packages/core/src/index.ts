@@ -5,8 +5,15 @@ import {
   createSourceFile,
   JSDocTag,
   SourceFile,
+  ImportDeclaration,
+  isImportDeclaration,
+  isIdentifier,
+  TypeReferenceNode,
+  isNamedImports,
+  SyntaxKind,
 } from "typescript";
 import { getJsDoc } from "tsutils";
+import { Arrays } from "@ts-ppx/common";
 
 export type Filesystem = Readonly<{
   readFile(filename: string): string;
@@ -74,6 +81,11 @@ export const GeneratedFileContents = {
   },
 } as const;
 
+export type EnrichedImportDeclaration = Readonly<{
+  importDeclaration: ImportDeclaration;
+  importFilename: string;
+}>;
+
 export type CodeGeneratorPlugin = Readonly<{
   name: string;
   transformPath: (inputFilename: string) => string;
@@ -82,6 +94,9 @@ export type CodeGeneratorPlugin = Readonly<{
       node: Node;
       sourceFile: SourceFile;
       transformPath: (inputFilename: string) => string;
+      findImportForTypeReference: (
+        node: TypeReferenceNode,
+      ) => EnrichedImportDeclaration | undefined;
       sourceFilename: string;
       targetFilename: string;
     }>,
@@ -115,6 +130,54 @@ export function runTsPpx(config: Config): void {
 
     const sourceFile = createSourceFile(filename, source, ScriptTarget.Latest);
 
+    const importDeclarations: ImportDeclaration[] = [];
+    sourceFile.forEachChild((node) => {
+      if (isImportDeclaration(node)) {
+        importDeclarations.push(node);
+      }
+    });
+
+    function findImportForTypeReference(
+      n: TypeReferenceNode,
+    ): EnrichedImportDeclaration | undefined {
+      // Check if this type was imported. If it was, we need to import its
+      // corresponding Zod schema.
+      const importNames = importDeclarations.flatMap((x) => {
+        if (!isIdentifier(n.typeName)) return [];
+
+        const importClause = x.importClause;
+        if (importClause === undefined) return [];
+
+        const namedBindings = importClause.namedBindings;
+        if (namedBindings === undefined) return [];
+        if (!isNamedImports(namedBindings)) return [];
+
+        for (const e of namedBindings.elements) {
+          if (e.name.escapedText === n.typeName.escapedText) {
+            return [x];
+          }
+        }
+        return [];
+      });
+
+      if (!Arrays.isNonEmpty(importNames)) return undefined;
+
+      let importFilename: string | undefined;
+      importNames[0].forEachChild((x) => {
+        if (x.kind !== SyntaxKind.StringLiteral) return;
+        importFilename = x.getText(sourceFile);
+      });
+
+      if (importFilename === undefined) {
+        throw new Error("Illegal state: Malformed import expression!");
+      }
+
+      return {
+        importDeclaration: importNames[0],
+        importFilename,
+      };
+    }
+
     sourceFile.forEachChild((node: Node) => {
       for (const doc of getJsDoc(node, sourceFile)) {
         for (const tag of doc.tags ?? []) {
@@ -135,6 +198,7 @@ export function runTsPpx(config: Config): void {
               node,
               sourceFile,
               transformPath: plugin.transformPath,
+              findImportForTypeReference,
               sourceFilename: filename,
               targetFilename,
             });

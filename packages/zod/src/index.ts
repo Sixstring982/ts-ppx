@@ -1,7 +1,10 @@
-import { CodeGeneratorPlugin, GeneratedFileContents } from "@ts-ppx/core";
+import {
+  CodeGeneratorPlugin,
+  EnrichedImportDeclaration,
+  GeneratedFileContents,
+} from "@ts-ppx/core";
 import path from "path";
 import {
-  ImportDeclaration,
   LiteralTypeNode,
   Node,
   PropertySignature,
@@ -12,16 +15,13 @@ import {
   TypeReferenceNode,
   UnionTypeNode,
   isIdentifier,
-  isImportDeclaration,
   isLiteralTypeNode,
-  isNamedImports,
   isPropertySignature,
   isTypeAliasDeclaration,
   isTypeLiteralNode,
   isTypeReferenceNode,
   isUnionTypeNode,
 } from "typescript";
-import { Arrays } from "@ts-ppx/common";
 
 export type ZodTsPpxPluginConfig = CodeGeneratorPlugin;
 
@@ -48,12 +48,16 @@ function generateZodTypings({
   node,
   sourceFile,
   transformPath,
+  findImportForTypeReference,
   sourceFilename,
   targetFilename,
 }: Readonly<{
   node: Node;
   sourceFile: SourceFile;
   transformPath: (filename: string) => string;
+  findImportForTypeReference: (
+    node: TypeReferenceNode,
+  ) => EnrichedImportDeclaration | undefined;
   sourceFilename: string;
   targetFilename: string;
 }>): GeneratedFileContents {
@@ -61,14 +65,11 @@ function generateZodTypings({
     throw new Error("Only type aliases can leverage the Zod ts-ppx plugin.");
   }
 
-  const importDeclarations: ImportDeclaration[] = [];
-  sourceFile.forEachChild((node) => {
-    if (isImportDeclaration(node)) {
-      importDeclarations.push(node);
-    }
-  });
-
-  const context: Context = { importDeclarations, sourceFile, transformPath };
+  const context: Context = {
+    sourceFile,
+    findImportForTypeReference,
+    transformPath,
+  };
 
   const { schema, imports } = ZodSchemas.forTypeNode(node.type, context);
 
@@ -92,8 +93,10 @@ function generateZodTypings({
 }
 
 type Context = Readonly<{
-  importDeclarations: readonly ImportDeclaration[];
   sourceFile: SourceFile;
+  findImportForTypeReference: (
+    node: TypeReferenceNode,
+  ) => EnrichedImportDeclaration | undefined;
   transformPath: (filename: string) => string;
 }>;
 
@@ -225,42 +228,16 @@ const ZodSchemas = {
         return ZodSchemas.forTypeNode(arg, c);
       }
     }
+
     // Check if this type was imported. If it was, we need to import its
     // corresponding Zod schema.
-    const importNames = c.importDeclarations.flatMap((x) => {
-      if (!isIdentifier(n.typeName)) return [];
-
-      const importClause = x.importClause;
-      if (importClause === undefined) return [];
-
-      const namedBindings = importClause.namedBindings;
-      if (namedBindings === undefined) return [];
-      if (!isNamedImports(namedBindings)) return [];
-
-      for (const e of namedBindings.elements) {
-        if (e.name.escapedText === n.typeName.escapedText) {
-          return [x];
-        }
-      }
-      return [];
-    });
-
-    if (!Arrays.isNonEmpty(importNames)) {
+    const importDeclaration = c.findImportForTypeReference(n);
+    if (importDeclaration === undefined) {
       return { schema: `${n.typeName.escapedText}.schema()`, imports: [] };
     }
 
-    let extraImport: string | undefined;
-    importNames[0].forEachChild((x) => {
-      if (x.kind !== SyntaxKind.StringLiteral) return;
-      extraImport = x.getText(c.sourceFile);
-    });
-
-    if (extraImport === undefined) {
-      throw new Error("Illegal state: Malformed import expression!");
-    }
-
     const imports = [
-      `import { ${n.typeName.escapedText} } from ${c.transformPath(extraImport)};`,
+      `import { ${n.typeName.escapedText} } from ${c.transformPath(importDeclaration.importFilename)};`,
     ];
 
     return { schema: `${n.typeName.escapedText}.schema()`, imports };
