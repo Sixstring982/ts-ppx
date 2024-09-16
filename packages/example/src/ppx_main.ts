@@ -10,7 +10,7 @@ runTsPpx({
   codeGenerators: [
     ZodTsPpxPluginConfig.make({
       transformPath: (path: string) => {
-        return path.replace(".ppx.ts", ".ts");
+        return path.replace(".ppx", "");
       },
     }),
     FastCheckCodeGeneratorPlugin.make({

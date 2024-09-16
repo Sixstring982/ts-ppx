@@ -18,6 +18,33 @@ importers:
         specifier: ^5.4.5
         version: 5.4.5
 
+  packages/common:
+    devDependencies:
+      '@ts-ppx/eslint-config':
+        specifier: workspace:*
+        version: link:../eslint-config
+      '@ts-ppx/typescript-config':
+        specifier: workspace:*
+        version: link:../typescript-config
+      '@turbo/gen':
+        specifier: ^1.12.4
+        version: 1.12.4(@types/node@20.11.24)(typescript@5.4.5)
+      '@types/eslint':
+        specifier: ^8.56.5
+        version: 8.56.5
+      '@types/node':
+        specifier: ^20.11.24
+        version: 20.11.24
+      eslint:
+        specifier: ^8.57.0
+        version: 8.57.0
+      typescript:
+        specifier: ^5.3.3
+        version: 5.4.5
+      vitest:
+        specifier: ^2.0.5
+        version: 2.0.5(@types/node@20.11.24)
+
   packages/core:
     devDependencies:
       '@ts-ppx/eslint-config':
@@ -186,6 +213,9 @@ importers:
 
   packages/zod:
     devDependencies:
+      '@ts-ppx/common':
+        specifier: workspace:*
+        version: link:../common
       '@ts-ppx/core':
         specifier: workspace:*
         version: link:../core

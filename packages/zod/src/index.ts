@@ -1,22 +1,27 @@
+import { CodeGeneratorPlugin, GeneratedFileContents } from "@ts-ppx/core";
+import path from "path";
 import {
+  ImportDeclaration,
+  LiteralTypeNode,
   Node,
+  PropertySignature,
+  SourceFile,
+  SyntaxKind,
+  TypeLiteralNode,
   TypeNode,
   TypeReferenceNode,
+  UnionTypeNode,
   isIdentifier,
+  isImportDeclaration,
+  isLiteralTypeNode,
+  isNamedImports,
   isPropertySignature,
+  isTypeAliasDeclaration,
   isTypeLiteralNode,
   isTypeReferenceNode,
-  PropertySignature,
-  SyntaxKind,
-  isLiteralTypeNode,
   isUnionTypeNode,
-  LiteralTypeNode,
-  UnionTypeNode,
-  isTypeAliasDeclaration,
-  TypeLiteralNode,
 } from "typescript";
-import path from "path";
-import { GeneratedFileContents, CodeGeneratorPlugin } from "@ts-ppx/core";
+import { Arrays } from "@ts-ppx/common";
 
 export type ZodTsPpxPluginConfig = CodeGeneratorPlugin;
 
@@ -41,10 +46,14 @@ function importFilename(sourceFilename: string, targetFilename: string) {
 
 function generateZodTypings({
   node,
+  sourceFile,
+  transformPath,
   sourceFilename,
   targetFilename,
 }: Readonly<{
   node: Node;
+  sourceFile: SourceFile;
+  transformPath: (filename: string) => string;
   sourceFilename: string;
   targetFilename: string;
 }>): GeneratedFileContents {
@@ -52,7 +61,16 @@ function generateZodTypings({
     throw new Error("Only type aliases can leverage the Zod ts-ppx plugin.");
   }
 
-  const zodSchema = ZodSchemas.forTypeNode(node.type);
+  const importDeclarations: ImportDeclaration[] = [];
+  sourceFile.forEachChild((node) => {
+    if (isImportDeclaration(node)) {
+      importDeclarations.push(node);
+    }
+  });
+
+  const context: Context = { importDeclarations, sourceFile, transformPath };
+
+  const { schema, imports } = ZodSchemas.forTypeNode(node.type, context);
 
   const typeName = node.name.escapedText.toString();
 
@@ -60,42 +78,65 @@ function generateZodTypings({
     imports: [
       "import { z } from 'zod';",
       `import { type ${typeName} as $${typeName} } from '${importFilename(sourceFilename, targetFilename)}';`,
+      ...(imports ?? []),
     ],
     topLevelStatements: [
       `export type ${typeName} = $${typeName};`,
       [
         `export const ${node.name.escapedText.toString()} = {`,
-        `  schema: () => ${zodSchema}.transform((x): ${typeName} => x),`,
+        `  schema: () => ${schema}.transform((x): ${typeName} => x),`,
         `} as const;`,
       ].join("\n"),
     ],
   };
 }
 
+type Context = Readonly<{
+  importDeclarations: readonly ImportDeclaration[];
+  sourceFile: SourceFile;
+  transformPath: (filename: string) => string;
+}>;
+
+type GeneratedCode = Readonly<{
+  schema: string;
+  imports: readonly string[];
+}>;
+const GeneratedCode = {
+  mapSchema: (
+    g: GeneratedCode,
+    f: (schema: string) => string,
+  ): GeneratedCode => {
+    return {
+      schema: f(g.schema),
+      imports: g.imports,
+    };
+  },
+} as const;
+
 const ZodSchemas = {
-  forPropertySignature: (n: PropertySignature): string => {
+  forPropertySignature: (n: PropertySignature, c: Context): GeneratedCode => {
     if (n.type === undefined) {
       throw new Error("Types are required for properties.");
     }
 
-    const schema = ZodSchemas.forTypeNode(n.type);
+    const schema = ZodSchemas.forTypeNode(n.type, c);
 
     if (n.questionToken !== undefined) {
-      return `${schema}.optional()`;
+      return GeneratedCode.mapSchema(schema, (x) => `${x}.optional()`);
     }
 
     return schema;
   },
-  forTypeNode: (n: TypeNode): string => {
+  forTypeNode: (n: TypeNode, c: Context): GeneratedCode => {
     switch (n.kind) {
       case SyntaxKind.TypeReference:
         if (!isTypeReferenceNode(n)) {
           throw new Error("Expected type reference!");
         }
-        return ZodSchemas.forTypeReference(n);
+        return ZodSchemas.forTypeReference(n, c);
       case SyntaxKind.TypeLiteral:
         if (!isTypeLiteralNode(n)) throw new Error("Expected type literal!");
-        return ZodSchemas.forTypeLiteral(n);
+        return ZodSchemas.forTypeLiteral(n, c);
       case SyntaxKind.LiteralType:
         if (!isLiteralTypeNode(n)) throw new Error("Expected literal type!");
         return ZodSchemas.forLiteral(n.literal);
@@ -109,12 +150,13 @@ const ZodSchemas = {
         return ZodSchemas.forUndefinedKeyword(n);
       case SyntaxKind.UnionType:
         if (!isUnionTypeNode(n)) throw new Error("Expected union type!");
-        return ZodSchemas.forUnion(n);
+        return ZodSchemas.forUnion(n, c);
     }
     throw new Error(`Unhandled type node: ${SyntaxKind[n.kind]}`);
   },
-  forTypeLiteral: (n: TypeLiteralNode): string => {
+  forTypeLiteral: (n: TypeLiteralNode, c: Context): GeneratedCode => {
     const lines: string[] = ["z.object({"];
+    const imports: string[] = [];
 
     n.forEachChild((child: Node) => {
       switch (child.kind) {
@@ -125,8 +167,9 @@ const ZodSchemas = {
           if (!isIdentifier(child.name)) {
             throw new Error("Expected property name to be an identifier!");
           }
-          const schema = ZodSchemas.forPropertySignature(child);
-          lines.push(`  ${child.name.escapedText}: ${schema},`);
+          const schema = ZodSchemas.forPropertySignature(child, c);
+          lines.push(`  ${child.name.escapedText}: ${schema.schema},`);
+          imports.push(...schema.imports);
           return;
       }
       throw new Error(`Unhandled TypeLiteral child: ${SyntaxKind[child.kind]}`);
@@ -134,30 +177,42 @@ const ZodSchemas = {
 
     lines.push("})");
 
-    return lines.join("\n");
+    return { schema: lines.join("\n"), imports };
   },
-  forLiteral: (n: LiteralTypeNode["literal"]): string => {
+  forLiteral: (n: LiteralTypeNode["literal"]): GeneratedCode => {
     switch (n.kind) {
       case SyntaxKind.StringLiteral:
-        return `z.literal('${n.text}')`;
+        return { schema: `z.literal('${n.text}')`, imports: [] };
       case SyntaxKind.NumericLiteral:
-        return `z.literal(${n.text})`;
+        return { schema: `z.literal(${n.text})`, imports: [] };
       case SyntaxKind.BigIntLiteral:
-        return `z.literal(${n.text})`;
+        return { schema: `z.literal(${n.text})`, imports: [] };
       case SyntaxKind.TrueKeyword:
-        return `z.literal(true)`;
+        return { schema: `z.literal(true)`, imports: [] };
       case SyntaxKind.FalseKeyword:
-        return `z.literal(false)`;
+        return { schema: `z.literal(false)`, imports: [] };
       case SyntaxKind.NullKeyword:
-        return `z.null()`;
+        return { schema: `z.null()`, imports: [] };
     }
     throw new Error(`Unhandled type node: ${SyntaxKind[n.kind]}`);
   },
-  forStringKeyword: (_: TypeNode): string => "z.string()",
-  forBigIntKeyword: (_: TypeNode): string => "z.bigint()",
-  forNumberKeyword: (_: TypeNode): string => "z.number()",
-  forUndefinedKeyword: (_: TypeNode): string => "z.undefined()",
-  forTypeReference: (n: TypeReferenceNode): string => {
+  forStringKeyword: (_: TypeNode): GeneratedCode => ({
+    schema: "z.string()",
+    imports: [],
+  }),
+  forBigIntKeyword: (_: TypeNode): GeneratedCode => ({
+    schema: "z.bigint()",
+    imports: [],
+  }),
+  forNumberKeyword: (_: TypeNode): GeneratedCode => ({
+    schema: "z.number()",
+    imports: [],
+  }),
+  forUndefinedKeyword: (_: TypeNode): GeneratedCode => ({
+    schema: "z.undefined()",
+    imports: [],
+  }),
+  forTypeReference: (n: TypeReferenceNode, c: Context): GeneratedCode => {
     if (!isIdentifier(n.typeName)) {
       throw new Error("Expected TypeReferenceNode to have an identifier!");
     }
@@ -167,20 +222,58 @@ const ZodSchemas = {
         if (arg === undefined) {
           throw new Error("Expected Readonly type to have an argument!");
         }
-        return ZodSchemas.forTypeNode(arg);
+        return ZodSchemas.forTypeNode(arg, c);
       }
     }
-    return `${n.typeName.escapedText}.schema()`;
-    // throw new Error(
-    //   `Unsupported TypeName reference: ${n.typeName.escapedText}`,
-    // );
-  },
-  forUnion: (n: UnionTypeNode): string => {
-    const children: string[] = [];
-    for (const child of n.types) {
-      children.push(ZodSchemas.forTypeNode(child));
+    // Check if this type was imported. If it was, we need to import its
+    // corresponding Zod schema.
+    const importNames = c.importDeclarations.flatMap((x) => {
+      if (!isIdentifier(n.typeName)) return [];
+
+      const importClause = x.importClause;
+      if (importClause === undefined) return [];
+
+      const namedBindings = importClause.namedBindings;
+      if (namedBindings === undefined) return [];
+      if (!isNamedImports(namedBindings)) return [];
+
+      for (const e of namedBindings.elements) {
+        if (e.name.escapedText === n.typeName.escapedText) {
+          return [x];
+        }
+      }
+      return [];
+    });
+
+    if (!Arrays.isNonEmpty(importNames)) {
+      return { schema: `${n.typeName.escapedText}.schema()`, imports: [] };
     }
 
-    return `z.union([${children.join(", ")}])`;
+    let extraImport: string | undefined;
+    importNames[0].forEachChild((x) => {
+      if (x.kind !== SyntaxKind.StringLiteral) return;
+      extraImport = x.getText(c.sourceFile);
+    });
+
+    if (extraImport === undefined) {
+      throw new Error("Illegal state: Malformed import expression!");
+    }
+
+    const imports = [
+      `import { ${n.typeName.escapedText} } from ${c.transformPath(extraImport)};`,
+    ];
+
+    return { schema: `${n.typeName.escapedText}.schema()`, imports };
+  },
+  forUnion: (n: UnionTypeNode, c: Context): GeneratedCode => {
+    const children: GeneratedCode[] = [];
+    for (const child of n.types) {
+      children.push(ZodSchemas.forTypeNode(child, c));
+    }
+
+    return {
+      schema: `z.union([${children.map((x) => x.schema).join(", ")}])`,
+      imports: children.flatMap((x) => x.imports ?? []),
+    };
   },
 } as const;

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type FruityviceRequest as $FruityviceRequest } from "./schema.ppx";
 import { type FruityviceResponse as $FruityviceResponse } from "./schema.ppx";
+import { Nutritions } from "./nutritions";
 
 export type FruityviceRequest = $FruityviceRequest;
 export const FruityviceRequest = {

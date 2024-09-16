@@ -1,4 +1,4 @@
-import { Nutritions } from "./nutritions";
+import { Nutritions } from "./nutritions.ppx";
 
 /** @ts-ppx(zod, fast-check) */
 export type FruityviceRequest = Readonly<{

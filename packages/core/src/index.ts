@@ -1,5 +1,11 @@
 import fs from "fs";
-import { ScriptTarget, Node, createSourceFile, JSDocTag } from "typescript";
+import {
+  ScriptTarget,
+  Node,
+  createSourceFile,
+  JSDocTag,
+  SourceFile,
+} from "typescript";
 import { getJsDoc } from "tsutils";
 
 export type Filesystem = Readonly<{
@@ -74,6 +80,8 @@ export type CodeGeneratorPlugin = Readonly<{
   generateCode: (
     params: Readonly<{
       node: Node;
+      sourceFile: SourceFile;
+      transformPath: (inputFilename: string) => string;
       sourceFilename: string;
       targetFilename: string;
     }>,
@@ -125,6 +133,8 @@ export function runTsPpx(config: Config): void {
             const targetFilename = plugin.transformPath(filename);
             const generatedCode = plugin.generateCode({
               node,
+              sourceFile,
+              transformPath: plugin.transformPath,
               sourceFilename: filename,
               targetFilename,
             });
