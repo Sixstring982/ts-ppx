@@ -9,15 +9,21 @@ runTsPpx({
   sourceRoot: "./src",
   codeGenerators: [
     ZodTsPpxPluginConfig.make({
-      transformPath: (path: string) => {
+      codegenImportFromSourceImport: (path: string) => {
+        return path.replace(".ppx", "");
+      },
+      codegenPathFromSourcePath: (path: string) => {
         return path.replace(".ppx", "");
       },
     }),
     FastCheckCodeGeneratorPlugin.make({
-      transformPath: (filename) => {
+      codegenImportFromSourceImport: (path: string) => {
+        return path.replace(".ppx", "");
+      },
+      codegenPathFromSourcePath: (filename) => {
         const dir = path.dirname(filename);
         let base = path.basename(filename);
-        base = base.replace(".ppx.ts", ".ts");
+        base = base.replace(".ppx", "");
 
         return path.join(dir, "testing", base);
       },

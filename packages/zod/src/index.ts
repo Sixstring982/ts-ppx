@@ -27,7 +27,10 @@ export type ZodTsPpxPluginConfig = CodeGeneratorPlugin;
 
 export const ZodTsPpxPluginConfig = {
   make: (
-    params: Readonly<{ transformPath: (filename: string) => string }>,
+    params: Readonly<{
+      codegenPathFromSourcePath: (filename: string) => string;
+      codegenImportFromSourceImport: (filename: string) => string;
+    }>,
   ): ZodTsPpxPluginConfig => ({
     ...params,
     name: "zod",
@@ -47,14 +50,16 @@ function importFilename(sourceFilename: string, targetFilename: string) {
 function generateZodTypings({
   node,
   sourceFile,
-  transformPath,
+  codegenImportFromSourceImport,
+  codegenPathFromSourcePath,
   findImportForTypeReference,
   sourceFilename,
   targetFilename,
 }: Readonly<{
   node: Node;
   sourceFile: SourceFile;
-  transformPath: (filename: string) => string;
+  codegenPathFromSourcePath: (filename: string) => string;
+  codegenImportFromSourceImport: (filename: string) => string;
   findImportForTypeReference: (
     node: TypeReferenceNode,
   ) => EnrichedImportDeclaration | undefined;
@@ -68,7 +73,8 @@ function generateZodTypings({
   const context: Context = {
     sourceFile,
     findImportForTypeReference,
-    transformPath,
+    codegenPathFromSourcePath,
+    codegenImportFromSourceImport,
   };
 
   const { schema, imports } = ZodSchemas.forTypeNode(node.type, context);
@@ -97,7 +103,8 @@ type Context = Readonly<{
   findImportForTypeReference: (
     node: TypeReferenceNode,
   ) => EnrichedImportDeclaration | undefined;
-  transformPath: (filename: string) => string;
+  codegenPathFromSourcePath: (filename: string) => string;
+  codegenImportFromSourceImport: (filename: string) => string;
 }>;
 
 type GeneratedCode = Readonly<{
@@ -237,7 +244,7 @@ const ZodSchemas = {
     }
 
     const imports = [
-      `import { ${n.typeName.escapedText} } from ${c.transformPath(importDeclaration.importFilename)};`,
+      `import { ${n.typeName.escapedText} } from ${c.codegenImportFromSourceImport(importDeclaration.importFilename)};`,
     ];
 
     return { schema: `${n.typeName.escapedText}.schema()`, imports };

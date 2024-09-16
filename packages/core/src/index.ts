@@ -88,12 +88,14 @@ export type EnrichedImportDeclaration = Readonly<{
 
 export type CodeGeneratorPlugin = Readonly<{
   name: string;
-  transformPath: (inputFilename: string) => string;
+  codegenPathFromSourcePath: (filename: string) => string;
+  codegenImportFromSourceImport: (filename: string) => string;
   generateCode: (
     params: Readonly<{
       node: Node;
       sourceFile: SourceFile;
-      transformPath: (inputFilename: string) => string;
+      codegenPathFromSourcePath: (filename: string) => string;
+      codegenImportFromSourceImport: (filename: string) => string;
       findImportForTypeReference: (
         node: TypeReferenceNode,
       ) => EnrichedImportDeclaration | undefined;
@@ -193,11 +195,13 @@ export function runTsPpx(config: Config): void {
               throw new Error(`Code generator not registered: "${tag}"!`);
             }
 
-            const targetFilename = plugin.transformPath(filename);
+            const targetFilename = plugin.codegenPathFromSourcePath(filename);
             const generatedCode = plugin.generateCode({
               node,
               sourceFile,
-              transformPath: plugin.transformPath,
+              codegenPathFromSourcePath: plugin.codegenPathFromSourcePath,
+              codegenImportFromSourceImport:
+                plugin.codegenImportFromSourceImport,
               findImportForTypeReference,
               sourceFilename: filename,
               targetFilename,

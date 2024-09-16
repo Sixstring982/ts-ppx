@@ -1,9 +1,14 @@
-import { CodeGeneratorPlugin, GeneratedFileContents } from "@ts-ppx/core";
+import {
+  CodeGeneratorPlugin,
+  EnrichedImportDeclaration,
+  GeneratedFileContents,
+} from "@ts-ppx/core";
 import path from "path";
 import {
   LiteralTypeNode,
   Node,
   PropertySignature,
+  SourceFile,
   SyntaxKind,
   TypeLiteralNode,
   TypeNode,
@@ -22,12 +27,14 @@ export type FastCheckCodeGeneratorPlugin = CodeGeneratorPlugin;
 export const FastCheckCodeGeneratorPlugin = {
   make: (
     params: Readonly<{
-      transformPath: (filename: string) => string;
+      codegenPathFromSourcePath: (filename: string) => string;
+      codegenImportFromSourceImport: (filename: string) => string;
     }>,
   ): FastCheckCodeGeneratorPlugin => {
     return {
       name: "fast-check",
-      transformPath: params.transformPath,
+      codegenImportFromSourceImport: params.codegenImportFromSourceImport,
+      codegenPathFromSourcePath: params.codegenPathFromSourcePath,
       generateCode,
     };
   },
@@ -44,10 +51,20 @@ function importFilename(sourceFilename: string, targetFilename: string) {
 
 function generateCode({
   node,
+  sourceFile,
+  codegenImportFromSourceImport,
+  codegenPathFromSourcePath,
+  findImportForTypeReference,
   sourceFilename,
   targetFilename,
 }: Readonly<{
   node: Node;
+  sourceFile: SourceFile;
+  codegenPathFromSourcePath: (filename: string) => string;
+  codegenImportFromSourceImport: (filename: string) => string;
+  findImportForTypeReference: (
+    node: TypeReferenceNode,
+  ) => EnrichedImportDeclaration | undefined;
   sourceFilename: string;
   targetFilename: string;
 }>): GeneratedFileContents {
@@ -57,7 +74,13 @@ function generateCode({
     );
   }
 
-  const arbitrary = Arbitraries.forTypeNode(node.type);
+  const context: Context = {
+    codegenPathFromSourcePath,
+    codegenImportFromSourceImport,
+    findImportForTypeReference,
+    sourceFile,
+  };
+  const arbitrary = Arbitraries.forTypeNode(node.type, context);
 
   const typeName = node.name.escapedText.toString();
 
@@ -66,61 +89,88 @@ function generateCode({
       "import fc from 'fast-check';",
       "import { Arbitrary } from 'fast-check';",
       `import { type ${typeName} as $${typeName} } from '${importFilename(sourceFilename, targetFilename)}';`,
+      ...arbitrary.imports,
     ],
     topLevelStatements: [
       `export type ${typeName} = $${typeName};`,
       [
         `export function arbitrary${typeName}(): Arbitrary<${typeName}> {`,
-        `  return ${arbitrary};`,
+        `  return ${arbitrary.code};`,
         `}`,
       ].join("\n"),
     ],
   };
 }
 
+type Context = Readonly<{
+  sourceFile: SourceFile;
+  codegenPathFromSourcePath: (filename: string) => string;
+  codegenImportFromSourceImport: (filename: string) => string;
+  findImportForTypeReference: (
+    node: TypeReferenceNode,
+  ) => EnrichedImportDeclaration | undefined;
+}>;
+
+type GeneratedCode = Readonly<{
+  code: string;
+  imports: readonly string[];
+}>;
+const GeneratedCode = {
+  mapCode: (g: GeneratedCode, f: (schema: string) => string): GeneratedCode => {
+    return {
+      code: f(g.code),
+      imports: g.imports,
+    };
+  },
+} as const;
+
 const Arbitraries = {
-  forPropertySignature: (n: PropertySignature): string => {
+  forPropertySignature: (n: PropertySignature, c: Context): GeneratedCode => {
     if (n.type === undefined) {
       throw new Error("Types are required for properties.");
     }
 
-    const schema = Arbitraries.forTypeNode(n.type);
+    const code = Arbitraries.forTypeNode(n.type, c);
 
     if (n.questionToken !== undefined) {
-      return `fc.oneof(fc.constant(undefined), ${schema})`;
+      return GeneratedCode.mapCode(
+        code,
+        (x) => `fc.oneof(fc.constant(undefined), ${x})`,
+      );
     }
 
-    return schema;
+    return code;
   },
-  forTypeNode: (n: TypeNode): string => {
+  forTypeNode: (n: TypeNode, c: Context): GeneratedCode => {
     switch (n.kind) {
       case SyntaxKind.TypeReference:
         if (!isTypeReferenceNode(n)) {
           throw new Error("Expected type reference!");
         }
-        return Arbitraries.forTypeReference(n);
+        return Arbitraries.forTypeReference(n, c);
       case SyntaxKind.TypeLiteral:
         if (!isTypeLiteralNode(n)) throw new Error("Expected type literal!");
-        return Arbitraries.forTypeLiteral(n);
+        return Arbitraries.forTypeLiteral(n, c);
       case SyntaxKind.LiteralType:
         if (!isLiteralTypeNode(n)) throw new Error("Expected literal type!");
-        return Arbitraries.forLiteral(n.literal);
+        return Arbitraries.forLiteral(n.literal, c);
       case SyntaxKind.BigIntKeyword:
-        return Arbitraries.forBigIntKeyword(n);
+        return Arbitraries.forBigIntKeyword(n, c);
       case SyntaxKind.StringKeyword:
-        return Arbitraries.forStringKeyword(n);
+        return Arbitraries.forStringKeyword(n, c);
       case SyntaxKind.NumberKeyword:
-        return Arbitraries.forNumberKeyword(n);
+        return Arbitraries.forNumberKeyword(n, c);
       case SyntaxKind.UndefinedKeyword:
-        return Arbitraries.forUndefinedKeyword(n);
+        return Arbitraries.forUndefinedKeyword(n, c);
       case SyntaxKind.UnionType:
         if (!isUnionTypeNode(n)) throw new Error("Expected union type!");
-        return Arbitraries.forUnion(n);
+        return Arbitraries.forUnion(n, c);
     }
     throw new Error(`Unhandled type node: ${SyntaxKind[n.kind]}`);
   },
-  forTypeLiteral: (n: TypeLiteralNode): string => {
+  forTypeLiteral: (n: TypeLiteralNode, c: Context): GeneratedCode => {
     const lines: string[] = ["fc.record({"];
+    const imports: string[] = [];
 
     n.forEachChild((child: Node) => {
       switch (child.kind) {
@@ -131,8 +181,9 @@ const Arbitraries = {
           if (!isIdentifier(child.name)) {
             throw new Error("Expected property name to be an identifier!");
           }
-          const schema = Arbitraries.forPropertySignature(child);
-          lines.push(`  ${child.name.escapedText}: ${schema},`);
+          const code = Arbitraries.forPropertySignature(child, c);
+          lines.push(`  ${child.name.escapedText}: ${code.code},`);
+          imports.push(...code.imports);
           return;
       }
       throw new Error(`Unhandled TypeLiteral child: ${SyntaxKind[child.kind]}`);
@@ -140,30 +191,45 @@ const Arbitraries = {
 
     lines.push("})");
 
-    return lines.join("\n");
+    return {
+      code: lines.join("\n"),
+      imports,
+    };
   },
-  forLiteral: (n: LiteralTypeNode["literal"]): string => {
+  forLiteral: (n: LiteralTypeNode["literal"], _c: Context): GeneratedCode => {
     switch (n.kind) {
       case SyntaxKind.StringLiteral:
-        return `fc.constant('${n.text}')`;
+        return { code: `fc.constant('${n.text}')`, imports: [] };
       case SyntaxKind.NumericLiteral:
-        return `fc.constant(${n.text})`;
+        return { code: `fc.constant(${n.text})`, imports: [] };
       case SyntaxKind.BigIntLiteral:
-        return `fc.constant(${n.text})`;
+        return { code: `fc.constant(${n.text})`, imports: [] };
       case SyntaxKind.TrueKeyword:
-        return `fc.constant(true)`;
+        return { code: `fc.constant(true)`, imports: [] };
       case SyntaxKind.FalseKeyword:
-        return `fc.constant(false)`;
+        return { code: `fc.constant(false)`, imports: [] };
       case SyntaxKind.NullKeyword:
-        return `fc.constant(null)`;
+        return { code: `fc.constant(null)`, imports: [] };
     }
     throw new Error(`Unhandled type node: ${SyntaxKind[n.kind]}`);
   },
-  forStringKeyword: (_: TypeNode): string => "fc.string()",
-  forBigIntKeyword: (_: TypeNode): string => "fc.bigint()",
-  forNumberKeyword: (_: TypeNode): string => "fc.double()",
-  forUndefinedKeyword: (_: TypeNode): string => "fc.constant(undefined)",
-  forTypeReference: (n: TypeReferenceNode): string => {
+  forStringKeyword: (_: TypeNode, _c: Context): GeneratedCode => ({
+    code: "fc.string()",
+    imports: [],
+  }),
+  forBigIntKeyword: (_: TypeNode, _c: Context): GeneratedCode => ({
+    code: "fc.bigint()",
+    imports: [],
+  }),
+  forNumberKeyword: (_: TypeNode, _c: Context): GeneratedCode => ({
+    code: "fc.double()",
+    imports: [],
+  }),
+  forUndefinedKeyword: (_: TypeNode, _c: Context): GeneratedCode => ({
+    code: "fc.constant(undefined)",
+    imports: [],
+  }),
+  forTypeReference: (n: TypeReferenceNode, c: Context): GeneratedCode => {
     if (!isIdentifier(n.typeName)) {
       throw new Error("Expected TypeReferenceNode to have an identifier!");
     }
@@ -173,20 +239,30 @@ const Arbitraries = {
         if (arg === undefined) {
           throw new Error("Expected Readonly type to have an argument!");
         }
-        return Arbitraries.forTypeNode(arg);
+        return Arbitraries.forTypeNode(arg, c);
       }
     }
-    return `arbitrary${n.typeName.escapedText}()`;
-    // throw new Error(
-    //   `Unsupported TypeName reference: ${SyntaxKind[n.typeName.kind]}`,
-    // );
-  },
-  forUnion: (n: UnionTypeNode): string => {
-    const children: string[] = [];
-    for (const child of n.types) {
-      children.push(Arbitraries.forTypeNode(child));
+    const importDeclaration = c.findImportForTypeReference(n);
+    if (importDeclaration === undefined) {
+      return { code: `arbitrary${n.typeName.escapedText}()`, imports: [] };
     }
 
-    return `fc.oneof(${children.join(", ")})`;
+    return {
+      code: `arbitrary${n.typeName.escapedText}()`,
+      imports: [
+        `import { arbitrary${n.typeName.escapedText} } from ${c.codegenImportFromSourceImport(importDeclaration.importFilename)}`,
+      ],
+    };
+  },
+  forUnion: (n: UnionTypeNode, c: Context): GeneratedCode => {
+    const children: GeneratedCode[] = [];
+    for (const child of n.types) {
+      children.push(Arbitraries.forTypeNode(child, c));
+    }
+
+    return {
+      code: `fc.oneof(${children.map((x) => x.code).join(", ")})`,
+      imports: children.flatMap((x) => x.imports),
+    };
   },
 } as const;

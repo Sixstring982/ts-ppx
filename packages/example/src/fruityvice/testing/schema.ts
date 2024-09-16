@@ -2,6 +2,7 @@ import fc from "fast-check";
 import { Arbitrary } from "fast-check";
 import { type FruityviceRequest as $FruityviceRequest } from "./../schema.ppx";
 import { type FruityviceResponse as $FruityviceResponse } from "./../schema.ppx";
+import { arbitraryNutritions } from "./nutritions";
 
 export type FruityviceRequest = $FruityviceRequest;
 export function arbitraryFruityviceRequest(): Arbitrary<FruityviceRequest> {
